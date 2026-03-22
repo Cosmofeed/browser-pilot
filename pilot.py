@@ -1014,6 +1014,264 @@ async def cmd_visual_diff(ws, url1, url2, path=None):
     log_ok(f"Screenshots {'identical' if same else 'DIFFERENT'}. Saved to {p1} and {p2}")
 
 # ═══════════════════════════════════════════════════════════
+# BONUS FEATURES (from browser-use research)
+# ═══════════════════════════════════════════════════════════
+
+# Feature 51: Markdown extractor
+MARKDOWN_JS = r"""
+(() => {
+  function md(el, depth) {
+    if (!el || el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') return '';
+    const tag = el.tagName;
+    let text = '';
+    if (tag === 'H1') text += '# ';
+    else if (tag === 'H2') text += '## ';
+    else if (tag === 'H3') text += '### ';
+    else if (tag === 'H4') text += '#### ';
+    else if (tag === 'LI') text += '- ';
+    else if (tag === 'A') {
+      const href = el.getAttribute('href') || '';
+      const t = el.innerText.trim();
+      if (t && href) return '[' + t + '](' + href + ')';
+    }
+    else if (tag === 'IMG') {
+      return '![' + (el.alt || '') + '](' + (el.src || '') + ')\n';
+    }
+    else if (tag === 'CODE') return '`' + el.innerText + '`';
+    else if (tag === 'PRE') return '```\n' + el.innerText + '\n```\n';
+    else if (tag === 'STRONG' || tag === 'B') return '**' + el.innerText + '**';
+    else if (tag === 'EM' || tag === 'I') return '*' + el.innerText + '*';
+    else if (tag === 'BR') return '\n';
+    else if (tag === 'HR') return '\n---\n';
+    else if (tag === 'TABLE') {
+      const rows = [];
+      el.querySelectorAll('tr').forEach(tr => {
+        rows.push('| ' + [...tr.querySelectorAll('td,th')].map(c => c.innerText.trim()).join(' | ') + ' |');
+      });
+      if (rows.length > 1) rows.splice(1, 0, '| ' + rows[0].split('|').slice(1,-1).map(() => '---').join(' | ') + ' |');
+      return rows.join('\n') + '\n';
+    }
+    for (const child of el.childNodes) {
+      if (child.nodeType === 3) text += child.textContent;
+      else if (child.nodeType === 1) text += md(child, depth + 1);
+    }
+    if (['P','DIV','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','SECTION','ARTICLE'].includes(tag))
+      text += '\n';
+    return text;
+  }
+  return md(document.body, 0).replace(/\n{3,}/g, '\n\n').trim();
+})()
+"""
+
+# Feature 52: Storage state (localStorage + sessionStorage)
+STORAGE_JS = """
+(() => {
+  const ls = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    ls[k] = localStorage.getItem(k)?.substring(0, 200);
+  }
+  const ss = {};
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const k = sessionStorage.key(i);
+    ss[k] = sessionStorage.getItem(k)?.substring(0, 200);
+  }
+  return {localStorage: ls, sessionStorage: ss, localCount: Object.keys(ls).length, sessionCount: Object.keys(ss).length};
+})()
+"""
+
+# Feature 53: Console log capture
+CONSOLE_JS = """
+(() => {
+  if (!window.__bp_console_logs) {
+    window.__bp_console_logs = [];
+    const orig = {log: console.log, warn: console.warn, error: console.error, info: console.info};
+    ['log','warn','error','info'].forEach(level => {
+      console[level] = function(...args) {
+        window.__bp_console_logs.push({level, msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), ts: Date.now()});
+        if (window.__bp_console_logs.length > 100) window.__bp_console_logs.shift();
+        orig[level].apply(console, args);
+      };
+    });
+    return 'Console capture started';
+  }
+  const logs = window.__bp_console_logs.slice(-50);
+  return logs;
+})()
+"""
+
+# Feature 54: PDF export
+async def cmd_pdf(ws, path=None):
+    """Export page as PDF"""
+    log_dim("printing to PDF...")
+    r = await cdp(ws, "Page.printToPDF", {"landscape": False, "printBackground": True, "preferCSSPageSize": True})
+    data = base64.b64decode(r["data"])
+    path = path or f"/tmp/bp-page-{int(time.time())}.pdf"
+    with open(path, "wb") as f: f.write(data)
+    log_ok(f"PDF saved ({len(data)//1024}KB) {C.UNDERLINE}{path}{C.RESET}")
+
+# Feature 55: Performance metrics
+PERF_JS = """
+(() => {
+  const nav = performance.getEntriesByType('navigation')[0] || {};
+  const paint = performance.getEntriesByType('paint');
+  const fcp = paint.find(p => p.name === 'first-contentful-paint');
+  const lcp = performance.getEntriesByType('largest-contentful-paint').pop();
+  const cls = performance.getEntriesByType('layout-shift').reduce((sum, e) => sum + (e.hadRecentInput ? 0 : e.value), 0);
+  return {
+    ttfb: Math.round(nav.responseStart - nav.requestStart) || null,
+    fcp: fcp ? Math.round(fcp.startTime) : null,
+    lcp: lcp ? Math.round(lcp.startTime) : null,
+    cls: Math.round(cls * 1000) / 1000,
+    dom_interactive: Math.round(nav.domInteractive) || null,
+    dom_complete: Math.round(nav.domComplete) || null,
+    load_time: Math.round(nav.loadEventEnd - nav.navigationStart) || null,
+    resources: performance.getEntriesByType('resource').length,
+    transfer_size: performance.getEntriesByType('resource').reduce((s, r) => s + (r.transferSize || 0), 0),
+  };
+})()
+"""
+
+# Feature 56: Page health check (combines multiple detectors)
+async def cmd_health(ws):
+    """Comprehensive page health check"""
+    log_dim("running full health check...")
+    results = {}
+    results["error"] = await js(ws, DETECT_ERROR_JS)
+    results["captcha"] = await js(ws, DETECT_CAPTCHA_JS)
+    results["login"] = await js(ws, DETECT_LOGIN_JS)
+    results["lang"] = await js(ws, DETECT_LANG_JS)
+    results["perf"] = await js(ws, PERF_JS)
+    results["cookie_banner"] = await js(ws, DETECT_COOKIE_JS)
+
+    # Summary
+    issues = []
+    if results["error"]["has_error"]: issues.append(f"ERROR: {results['error']['errors']}")
+    if results["captcha"]["has_captcha"]: issues.append("CAPTCHA detected")
+    if results["login"]["needs_login"]: issues.append("Login required")
+    if results["cookie_banner"]["found"]: issues.append("Cookie banner blocking")
+    perf = results["perf"]
+    if perf.get("lcp") and perf["lcp"] > 4000: issues.append(f"Slow LCP: {perf['lcp']}ms")
+    if perf.get("cls") and perf["cls"] > 0.25: issues.append(f"High CLS: {perf['cls']}")
+
+    if issues:
+        print(f"  {C.RED}{C.BOLD}Issues ({len(issues)}):{C.RESET}")
+        for i in issues: print(f"  {C.RED}  - {i}{C.RESET}")
+    else:
+        print(f"  {C.GREEN}{C.BOLD}All clear! Page is healthy.{C.RESET}")
+
+    print(f"\n  {C.CYAN}Performance:{C.RESET}")
+    if perf.get("ttfb"): print(f"    TTFB: {perf['ttfb']}ms")
+    if perf.get("fcp"): print(f"    FCP:  {perf['fcp']}ms")
+    if perf.get("lcp"): print(f"    LCP:  {perf['lcp']}ms")
+    if perf.get("cls") is not None: print(f"    CLS:  {perf['cls']}")
+    print(f"    Resources: {perf.get('resources', '?')} ({perf.get('transfer_size', 0)//1024}KB)")
+    print(f"  {C.CYAN}Language:{C.RESET} {results['lang'].get('html_lang', '?')}")
+
+# Feature 57: Wait for network idle
+async def cmd_network_idle(ws, timeout=10):
+    """Wait for network to go idle (#smart navigation)"""
+    log_dim("waiting for network silence...")
+    await cdp(ws, "Network.enable")
+    start = time.time()
+    last_activity = time.time()
+    while time.time() - start < float(timeout):
+        # Check if any requests are pending via performance API
+        pending = await js(ws, """
+        (() => {
+            const entries = performance.getEntriesByType('resource');
+            const recent = entries.filter(e => e.responseEnd === 0 || (Date.now() - e.startTime) < 2000);
+            return recent.length;
+        })()
+        """)
+        if pending == 0 and time.time() - last_activity > 2:
+            log_ok(f"Network idle after {time.time()-start:.1f}s. All quiet on the wire.")
+            return
+        if pending > 0: last_activity = time.time()
+        await asyncio.sleep(0.5)
+    log_warn(f"Network didn't fully settle after {timeout}s")
+
+# Feature 58: Text search (find on page)
+async def cmd_find(ws, query):
+    """Find text on page and highlight matches"""
+    esc = query.replace("'", "\\'")
+    count = await js(ws, f"""(() => {{
+      {HIGHLIGHT_STYLE}
+      document.querySelectorAll('.bp-hl').forEach(e => e.remove());
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let count = 0;
+      while (walker.nextNode()) {{
+        const node = walker.currentNode;
+        if (node.textContent.toLowerCase().includes('{esc}'.toLowerCase())) {{
+          const range = document.createRange();
+          const idx = node.textContent.toLowerCase().indexOf('{esc}'.toLowerCase());
+          range.setStart(node, idx);
+          range.setEnd(node, idx + '{esc}'.length);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0) {{
+            const o = document.createElement('div'); o.className = 'bp-hl';
+            o.style.cssText = 'position:absolute;left:'+(rect.left+scrollX-2)+'px;top:'+(rect.top+scrollY-2)+'px;width:'+(rect.width+4)+'px;height:'+(rect.height+4)+'px;background:rgba(255,102,0,0.3);border:1px solid #ff6600;border-radius:2px;pointer-events:none;z-index:999999';
+            document.body.appendChild(o);
+            count++;
+          }}
+        }}
+      }}
+      setTimeout(() => document.querySelectorAll('.bp-hl').forEach(e => e.remove()), 10000);
+      return count;
+    }})()""")
+    log_ok(f"Found {count} matches for '{query}'. Highlighted for 10 seconds.")
+
+# Feature 59: DOM size stats
+async def cmd_stats(ws):
+    """Page statistics"""
+    stats = await js(ws, """(() => {
+      return {
+        title: document.title,
+        url: location.href,
+        dom_nodes: document.querySelectorAll('*').length,
+        text_length: document.body.innerText.length,
+        links: document.querySelectorAll('a').length,
+        images: document.querySelectorAll('img').length,
+        forms: document.querySelectorAll('form').length,
+        inputs: document.querySelectorAll('input,select,textarea').length,
+        buttons: document.querySelectorAll('button,[role="button"]').length,
+        iframes: document.querySelectorAll('iframe').length,
+        scripts: document.querySelectorAll('script').length,
+        stylesheets: document.querySelectorAll('link[rel="stylesheet"],style').length,
+        cookies: document.cookie.split(';').filter(c => c.trim()).length,
+        scroll_height: document.body.scrollHeight,
+        viewport: window.innerWidth + 'x' + window.innerHeight,
+      };
+    })()""")
+    print(f"\n  {C.BOLD}{C.CYAN}Page Stats{C.RESET}")
+    print(f"  {C.DIM}{'─'*40}{C.RESET}")
+    for k, v in stats.items():
+        print(f"  {C.ORANGE}{k:>18}{C.RESET}  {v}")
+    print()
+
+# Feature 60: Clean/readable text extraction (better than innerText)
+READABLE_JS = r"""
+(() => {
+  function clean(el) {
+    if (!el || ['SCRIPT','STYLE','NOSCRIPT','SVG','NAV','HEADER','FOOTER'].includes(el.tagName)) return '';
+    let text = '';
+    for (const child of el.childNodes) {
+      if (child.nodeType === 3) text += child.textContent;
+      else if (child.nodeType === 1) {
+        const block = ['DIV','P','H1','H2','H3','H4','H5','H6','LI','TR','SECTION','ARTICLE','BLOCKQUOTE'].includes(child.tagName);
+        const childText = clean(child);
+        if (block && childText.trim()) text += '\n' + childText + '\n';
+        else text += childText;
+      }
+    }
+    return text;
+  }
+  const main = document.querySelector('main, article, [role="main"], #content, .content') || document.body;
+  return clean(main).replace(/\n{3,}/g, '\n\n').replace(/[ \t]+/g, ' ').trim();
+})()
+"""
+
+# ═══════════════════════════════════════════════════════════
 # MAIN ROUTER
 # ═══════════════════════════════════════════════════════════
 
@@ -1115,6 +1373,17 @@ async def main():
         elif cmd == "shadow":
             log_dim(q("shadow"))
             log_ok("Shadow DOM elements are already included in 'dom' output (v4 walks shadowRoot)")
+        # Bonus features (51-60)
+        elif cmd == "markdown": print(await js(ws, MARKDOWN_JS))
+        elif cmd == "storage": print(json.dumps(await js(ws, STORAGE_JS), indent=2))
+        elif cmd == "console": print(json.dumps(await js(ws, CONSOLE_JS), indent=2))
+        elif cmd == "pdf": await cmd_pdf(ws, args[0] if args else None)
+        elif cmd == "perf": print(json.dumps(await js(ws, PERF_JS), indent=2))
+        elif cmd == "health": await cmd_health(ws)
+        elif cmd == "network-idle": await cmd_network_idle(ws, args[0] if args else 10)
+        elif cmd == "find": await cmd_find(ws, args[0])
+        elif cmd == "stats": await cmd_stats(ws)
+        elif cmd == "readable": print(await js(ws, READABLE_JS))
         else:
             log_err(f"Unknown: {cmd}. I'm good, but not THAT good.")
             print(__doc__)
