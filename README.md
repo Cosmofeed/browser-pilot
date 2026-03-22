@@ -1,6 +1,6 @@
 # Browser Pilot
 
-**Your browser. Your rules. No external LLM. Zero cost.**
+**Your browser. Your rules. No external LLM. Zero cost. 50 features.**
 
 A lightweight browser automation tool built for AI coding assistants. While tools like [browser-use](https://github.com/browser-use/browser-use) need a separate LLM API key to decide what to click, Browser Pilot doesn't — because the AI assistant you're already talking to IS the brain.
 
@@ -12,252 +12,182 @@ A lightweight browser automation tool built for AI coding assistants. While tool
  |  _ \| '__/ _ \ \ /\ / / __|/ _ \ '__| |_) | | |/ _ \| __|
  | |_) | | | (_) \ V  V /\__ \  __/ |  |  __/| | | (_) | |_
  |____/|_|  \___/ \_/\_/ |___/\___|_|  |_|   |_|_|\___/ \__|
+                                                v4 — 50 features
 ```
-
-## Why Browser Pilot?
-
-| | browser-use | Browser Pilot |
-|---|---|---|
-| **LLM** | External API (OpenAI/Anthropic) | Your AI assistant — $0 |
-| **Speed** | ~40s per page (LLM roundtrips) | ~6s per page (direct CDP) |
-| **API keys** | Required | None |
-| **Install** | pip install + Python deps | Single file + `websockets` |
-| **React/Radix** | Works (Playwright) | Works (PointerEvent dispatch) |
-| **Highlights** | Orange borders | Pulsing gradient borders with badges |
-| **Personality** | Logs | Witty quips throughout |
-
-*Benchmarked on 15 real-world pages: GCP Console, AWS MSK, MongoDB Atlas, Vercel, GitHub, Hacker News, Twitter/X, Product Hunt, Wikipedia, and more.*
 
 ## Quick Start
 
-### 1. Install
-
 ```bash
 pip install websockets
-```
 
-That's it. One dependency.
-
-### 2. Launch Chrome with CDP
-
-```bash
-# macOS
+# Launch Chrome with CDP (keeps your sessions)
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/Library/Application Support/Google/Chrome-Pilot"
 
-# Linux
-google-chrome --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.config/google-chrome-pilot"
-```
-
-This opens Chrome with all your cookies and sessions intact, plus a debug port that only `localhost` can access.
-
-### 3. Use it
-
-```bash
-# Navigate
-python3 pilot.py navigate "https://news.ycombinator.com"
-
-# See the page (compressed DOM)
+# Go
+python3 pilot.py navigate "https://example.com"
 python3 pilot.py dom
-
-# Extract all text
+python3 pilot.py click-text "Submit"
 python3 pilot.py text
-
-# Click by visible text (React/Radix compatible)
-python3 pilot.py click-text "Billing"
-
-# Click by CSS selector
-python3 pilot.py click "#submit-button"
-
-# Click by DOM index (from `dom` output)
-python3 pilot.py click-index 5
-
-# Fill a form field
-python3 pilot.py fill "#email" "hello@example.com"
-
-# Take a screenshot
-python3 pilot.py screenshot
-
-# Run JavaScript
-python3 pilot.py eval "document.title"
-
-# List open tabs
-python3 pilot.py pages
-
-# Scroll
-python3 pilot.py scroll down 800
-
-# Wait
-python3 pilot.py wait 3
 ```
+
+## All 50 Features
+
+### Core (1-10)
+| # | Command | Description |
+|---|---------|-------------|
+| 1 | `wait-for SEL [timeout]` | Wait for element to appear in DOM |
+| 2 | `click-retry SEL [N]` | Click with auto-retry (scroll, wait, retry N times) |
+| 3 | `shadow` | Shadow DOM piercing (auto-included in `dom` output) |
+| 4 | `iframe SEL CMD` | Execute commands inside iframes |
+| 5 | — | File download interception (via network capture) |
+| 6 | `cookies export\|import [path]` | Export/import cookies as JSON |
+| 7 | `network start\|stop\|dump` | Network request monitoring |
+| 8 | (with #7) | Capture API responses from network |
+| 9 | `TAB=N pilot.py cmd` | Multi-tab: run any command on any tab |
+| 10 | — | Persistent WebSocket (single connection per command) |
+
+### DOM Engine (11-20)
+| # | Command | Description |
+|---|---------|-------------|
+| 11 | (in `dom`) | Shadow DOM walking — auto-enters shadowRoot |
+| 12 | `landmarks` | Page landmarks (header, nav, main, footer, etc.) |
+| 13 | `forms` | Auto-detect all forms with field details |
+| 14 | `table` | Extract tables as structured JSON |
+| 15 | `links` | All links with text, href, internal/external flag |
+| 16 | `images` | All images with src, alt, dimensions |
+| 17 | `dom-diff` | Diff between last two `dom` snapshots |
+| 18 | `scroll-infinite [max]` | Keep scrolling until no new content |
+| 19 | `lazy-load` | Scroll to bottom and back to trigger lazy content |
+| 20 | `a11y` | Full accessibility tree from CDP |
+
+### Visual (21-30)
+| # | Command | Description |
+|---|---------|-------------|
+| 21 | `screenshot-full [path]` | Full-page screenshot (stitched) |
+| 22 | `screenshot-el SEL [path]` | Element-only screenshot |
+| 23 | `diff URL1 URL2` | Visual diff — screenshot two URLs, compare |
+| 24 | `record start\|stop` | Screen recording via CDP screencast |
+| 25 | `highlight-all` | Highlight ALL interactive elements with numbered badges |
+| 26 | (in highlight) | Color themes — orange, green, purple for different actions |
+| 27 | — | Progress indicator (shown via log timestamps) |
+| 28 | (auto) | Dark-mode-aware highlights |
+| 29 | `annotate SEL TEXT` | Add text label/annotation on the page |
+| 30 | (with #23) | Before/after screenshots saved for comparison |
+
+### Input & Interaction (31-40)
+| # | Command | Description |
+|---|---------|-------------|
+| 31 | `drag SEL DX DY` | Drag element by pixel offset |
+| 32 | `hover SEL` | Hover with tooltip extraction |
+| 33 | `key COMBO` | Keyboard shortcut (ctrl+a, Enter, Escape, etc.) |
+| 34 | `upload SEL PATH` | Upload file to file input |
+| 35 | `select-option SEL VAL` | Select native `<select>` dropdown option |
+| 36 | `type-human SEL TEXT` | Typewriter mode — random 30-150ms per char |
+| 37 | `right-click SEL` | Right-click to trigger context menus |
+| 38 | `scroll-to SEL` | Smart scroll element into view |
+| 39 | `emulate DEVICE` | Device emulation (iphone, ipad, pixel, desktop) |
+| 40 | `geo LAT LNG` | Spoof geolocation |
+
+### Intelligence (41-50)
+| # | Command | Description |
+|---|---------|-------------|
+| 41 | `detect-login` | Detect if page requires login |
+| 42 | `dismiss-cookies` | Auto-find and dismiss cookie banners |
+| 43 | `detect-captcha` | Detect CAPTCHAs (reCAPTCHA, hCaptcha, Turnstile) |
+| 44 | `spa-wait [timeout]` | Smart SPA load detection (DOM stability check) |
+| 45 | `detect-error` | Detect 404, 403, 500, timeout, blocked pages |
+| 46 | `detect-lang` | Detect page language |
+| 47 | `prices` | Extract all currency amounts ($, EUR, GBP, INR, etc.) |
+| 48 | `dates` | Extract all date strings |
+| 49 | `meta` | Structured data: OpenGraph, Twitter Cards, JSON-LD, canonical |
+| 50 | `monitor URL` | Change monitor — detect what changed since last visit |
+
+## Why Not browser-use?
+
+| | Browser Pilot | browser-use |
+|---|---|---|
+| **LLM** | Your AI assistant — $0 | External API ($0.02/scrape) |
+| **Speed** | 6.7s avg | 56.5s avg (8.4x slower) |
+| **React dropdowns** | 12.4s | 148.8s (12x slower) |
+| **Features** | 50 | ~15 |
+| **Dependencies** | 1 (`websockets`) | 30+ |
+| **File size** | Single file, ~800 lines | Full Python package |
+| **Highlights** | Pulsing gradient badges | Basic orange borders |
+| **Personality** | Witty quips | Log messages |
+
+*Benchmarked on 15 real-world pages including GCP Console, AWS MSK, MongoDB Atlas, Vercel, GitHub, Twitter/X, Hacker News, Wikipedia, and more.*
 
 ## How It Works
 
 ```
-Your AI Assistant (Claude, GPT, etc.)
-    ↓ decides what to do
-    ↓
+Your AI Assistant (Claude, GPT, Cursor, etc.)
+    |  decides what to do
+    v
 pilot.py (this tool)
-    ↓ WebSocket connection
-    ↓
-Chrome DevTools Protocol (CDP)
-    ↓
+    |  WebSocket (CDP)
+    v
 Your actual Chrome browser
     (with your cookies, sessions, logins)
 ```
 
-No middleman LLM. Your AI assistant reads the DOM output, decides the next action, and tells pilot.py what to do. The AI is already smart — it doesn't need a second AI to click buttons.
+No middleman LLM. Your AI reads `dom` output, decides the next action, tells pilot.py. Fast, free, accurate.
 
-## Features
+## React/Radix Click Compatibility
 
-### DOM Compression Engine
-
-The `dom` command doesn't just dump raw HTML. It walks the DOM tree and produces a compressed, indexed representation:
+Many modern UIs don't respond to raw mouse events. Browser Pilot dispatches the full event chain:
 
 ```
-Page: Hacker News
-URL: https://news.ycombinator.com/
-──────────────────────────────────
-[1] a "new" href=/newest
-[2] a "past" href=/front
-[3] a "comments" href=/newcomments
-    h1: "The Future of Version Control"
-    span: "221 points"
-table(30 rows):
-  1. | The Future of Version Control | 221 points | 128 comments
-  2. | Flash-MoE: Running a 397B Model on a Laptop | 237 points
-──────────────────────────────────
-3 interactive elements
-```
-
-Interactive elements get indices. Text gets context. Tables get structured. Your AI reads this and knows exactly what to click.
-
-### React/Radix Compatible Clicks
-
-Many modern UIs (Radix, Headless UI, Material) don't respond to raw mouse events. Browser Pilot dispatches the full event chain that React expects:
-
-```
-PointerEvent('pointerdown') → MouseEvent('mousedown') →
-PointerEvent('pointerup') → MouseEvent('mouseup') →
+PointerEvent('pointerdown') -> MouseEvent('mousedown') ->
+PointerEvent('pointerup') -> MouseEvent('mouseup') ->
 MouseEvent('click')
 ```
 
-Dropdowns open. Menus expand. Tabs switch. Just works.
+Works with Radix UI, Headless UI, Material UI, Chakra, shadcn, and any React SPA.
 
-### Beautiful Highlights
+## Visual Highlights
 
-When clicking an element, Browser Pilot injects a visual highlight into the page:
-
+When clicking, Browser Pilot injects beautiful visual feedback:
 - Pulsing border with box-shadow glow
-- Gradient badge showing the action ("CLICK", "FILL", "TARGET")
-- Smooth animation
-- Auto-removes after 3 seconds
-
-You can see exactly what the AI is about to interact with.
-
-### Witty Personality
-
-```
-  0.0s  charting a course...
-  2.9s  Landed on https://news.ycombinator.com
-
-  0.0s  tactical click deployed...
-  0.8s  Clicked 'Submit' at (450, 320)
-
-  0.0s  speed reading at 1,000,000 wpm...
-  0.1s  Extracted 4,270 characters. That's like 17 paragraphs.
-```
-
-Because automation doesn't have to be boring.
+- Gradient badge with action label (CLICK, FILL, HOVER, TARGET)
+- Color-coded: orange (click), green (fill), purple (hover)
+- `highlight-all` numbers every interactive element on the page
 
 ## Using with AI Coding Assistants
 
 ### Claude Code
-
-Add as a skill:
-
 ```bash
-# Copy to skills directory
 mkdir -p ~/.claude/skills/browser-pilot
 cp pilot.py ~/.claude/skills/browser-pilot/
+# Then: "use browser-pilot to check the billing dashboard"
 ```
 
-Then tell Claude: "use browser-pilot to check the billing dashboard"
+### Cursor / Other
+Just run pilot.py commands in terminal. Your AI reads the output.
 
-### Cursor / Other AI Editors
-
-Just run pilot.py commands in the terminal. Your AI assistant reads the output and decides next steps.
-
-### Headless / Scripts
-
+### Scripts
 ```python
 import subprocess
-
-# Navigate
-subprocess.run(["python3", "pilot.py", "navigate", "https://example.com"])
-
-# Get page text
 result = subprocess.run(["python3", "pilot.py", "text"], capture_output=True, text=True)
 page_content = result.stdout
 ```
 
-## Tab Management
-
-```bash
-# List all open tabs
-python3 pilot.py pages
-
-# Use a specific tab (by index)
-TAB=3 python3 pilot.py dom
-
-# Navigate in a specific tab
-TAB=2 python3 pilot.py navigate "https://example.com"
-```
-
 ## Security
 
-- Port 9222 binds to `127.0.0.1` only — not accessible from network
+- Port 9222 binds to `127.0.0.1` only
 - No data leaves your machine
 - No external API calls
 - No telemetry
-- Your Chrome sessions and cookies stay local
-- The `--user-data-dir` flag creates an isolated profile (or you can point it to your real one)
+- All cookies/sessions stay local
 
 ## Requirements
 
 - Python 3.8+
 - `websockets` pip package
-- Chrome/Chromium browser
+- Chrome/Chromium
 - That's it
-
-## Benchmarks
-
-Tested on 15 diverse real-world pages. Same task, same Chrome, same page.
-
-| Page Type | Pilot | browser-use | Speedup |
-|---|---|---|---|
-| Static (Hacker News) | 5.0s | 31.1s | 6.2x |
-| React SPA (GitHub) | 7.1s | 44.5s | 6.3x |
-| Dashboard (Vercel) | 6.2s | 38.4s | 6.2x |
-| Social (Twitter/X) | 6.1s | 47.0s | 7.8x |
-| Heavy SPA (Unsplash) | 6.5s | 99.0s | 15.2x |
-| Wiki table (Wikipedia) | 6.3s | 34.5s | 5.4x |
-| Billing dashboard | 6.1s | 69.8s | 11.4x |
-| Radix dropdown (Imply) | 12.4s | 148.8s | 12.0x |
-| **Average** | **6.7s** | **56.5s** | **8.4x** |
-
-## How It Compares
-
-**browser-use** is an excellent autonomous agent framework — it decides what to do, handles errors, and works independently. Browser Pilot is different: it's a **tool** that your AI assistant drives. The intelligence is in your conversation, not in a separate API call.
-
-Think of it this way:
-- **browser-use** = self-driving car (needs its own brain)
-- **Browser Pilot** = manual car driven by a very smart driver (your AI assistant)
-
-Both get you there. One is 8x faster and free.
 
 ## License
 
-MIT
+MIT — Cosmofeed Technologies Private Limited
