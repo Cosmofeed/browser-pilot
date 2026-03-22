@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+*.png
+*.jpg
+/tmp/
+.DS_Store
+browser-pilot-selectors.json
