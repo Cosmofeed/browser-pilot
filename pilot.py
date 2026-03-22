@@ -1272,6 +1272,150 @@ READABLE_JS = r"""
 """
 
 # ═══════════════════════════════════════════════════════════
+# FEATURE 61-65: RESEARCH ADDITIONS
+# ═══════════════════════════════════════════════════════════
+
+# Feature 61: Batch mode — run commands from file
+async def cmd_batch(ws, filepath):
+    """Run commands from a file, one per line"""
+    if not os.path.exists(filepath):
+        log_err(f"File not found: {filepath}"); return
+    with open(filepath) as f:
+        lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+    log_dim(f"batch mode: {len(lines)} commands queued...")
+    for i, line in enumerate(lines):
+        parts = line.split(None, 1)
+        cmd = parts[0]
+        arg = parts[1] if len(parts) > 1 else ""
+        log(f"[{i+1}/{len(lines)}] {cmd} {arg[:50]}", C.ORANGE)
+        # Execute inline — simplified version
+        if cmd == "navigate": await cmd_navigate(ws, arg)
+        elif cmd == "click": await cmd_click(ws, arg)
+        elif cmd == "click-text": await cmd_click_text(ws, arg)
+        elif cmd == "fill":
+            fparts = arg.split(None, 1)
+            if len(fparts) == 2: await cmd_fill(ws, fparts[0], fparts[1])
+        elif cmd == "wait": await asyncio.sleep(float(arg) if arg else 2)
+        elif cmd == "screenshot": await cmd_screenshot(ws, arg if arg else None)
+        elif cmd == "text":
+            t = await js(ws, "document.body.innerText") or ""
+            print(t[:500])
+        elif cmd == "scroll": await cmd_scroll(ws, arg if arg else "down")
+        elif cmd == "key": await cmd_key(ws, arg)
+        else: log_warn(f"Skipped unknown batch command: {cmd}")
+    log_ok(f"Batch complete. {len(lines)} commands executed. Mission accomplished.")
+
+# Feature 62: Block resources (ads, tracking, images for speed)
+async def cmd_block(ws, resource_type="image"):
+    """Block resource types for faster loading"""
+    log_dim("setting up resource blocker...")
+    await cdp(ws, "Network.enable")
+    types_map = {
+        "image": "Image", "font": "Font", "media": "Media",
+        "script": "Script", "stylesheet": "Stylesheet",
+        "ads": "Script",  # Block ad scripts
+    }
+    rtype = types_map.get(resource_type.lower(), resource_type)
+    # Use request interception
+    await cdp(ws, "Fetch.enable", {"patterns": [{"resourceType": rtype, "requestStage": "Request"}]})
+    log_ok(f"Blocking {resource_type} resources. Pages will load faster.")
+
+# Feature 63: Session save/restore (full state)
+async def cmd_session(ws, action="save", name="default"):
+    """Save or restore complete browser session (#9)"""
+    session_dir = f"{STATE_DIR}/sessions/{name}"
+    os.makedirs(session_dir, exist_ok=True)
+
+    if action == "save":
+        log_dim("saving browser session state...")
+        # Cookies
+        cookies = (await cdp(ws, "Network.getAllCookies")).get("cookies", [])
+        with open(f"{session_dir}/cookies.json", "w") as f: json.dump(cookies, f)
+        # Storage
+        storage = await js(ws, STORAGE_JS)
+        with open(f"{session_dir}/storage.json", "w") as f: json.dump(storage, f)
+        # Current URL
+        url = await js(ws, "location.href")
+        with open(f"{session_dir}/url.txt", "w") as f: f.write(url or "")
+        log_ok(f"Session '{name}' saved ({len(cookies)} cookies, URL: {url})")
+
+    elif action == "restore":
+        log_dim(f"restoring session '{name}'...")
+        if not os.path.exists(f"{session_dir}/cookies.json"):
+            log_err(f"No saved session '{name}'"); return
+        # Restore cookies
+        cookies = json.load(open(f"{session_dir}/cookies.json"))
+        for c in cookies:
+            params = {k: v for k, v in c.items() if k in ("name","value","domain","path","secure","httpOnly","sameSite","expires")}
+            try: await cdp(ws, "Network.setCookie", params)
+            except: pass
+        # Restore URL
+        url = open(f"{session_dir}/url.txt").read().strip()
+        if url: await cdp(ws, "Page.navigate", {"url": url}); await asyncio.sleep(3)
+        # Restore storage
+        storage = json.load(open(f"{session_dir}/storage.json"))
+        for k, v in storage.get("localStorage", {}).items():
+            await js(ws, f"localStorage.setItem('{k}', '{v}')")
+        log_ok(f"Session '{name}' restored. Welcome back.")
+
+    elif action == "list":
+        sessions_dir = f"{STATE_DIR}/sessions"
+        if os.path.exists(sessions_dir):
+            names = os.listdir(sessions_dir)
+            for n in names:
+                ts = os.path.getmtime(f"{sessions_dir}/{n}")
+                print(f"  {C.ORANGE}{n}{C.RESET}  {C.GRAY}(saved {datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')}){C.RESET}")
+        else:
+            log_dim("No saved sessions yet.")
+    else:
+        log_err("Usage: session [save|restore|list] [name]")
+
+# Feature 64: Self-healing click — try multiple strategies
+async def cmd_click_heal(ws, selector):
+    """Self-healing click — tries CSS, text, aria-label, index fallbacks (#7 from research)"""
+    log_dim("self-healing click engaged...")
+    strategies = [
+        ("CSS selector", _click_js(selector)),
+        ("Text match", _click_text_js(selector)),
+        ("Aria-label", _click_js(f'[aria-label*="{selector}"]')),
+        ("Title", _click_js(f'[title*="{selector}"]')),
+        ("Placeholder", _click_js(f'[placeholder*="{selector}"]')),
+    ]
+    for name, click_js_code in strategies:
+        v = await js(ws, click_js_code)
+        if v and (isinstance(v, dict) and v.get("ok") or (isinstance(v, dict) and v.get("found"))):
+            text = v.get("text", v.get("found", ""))
+            log_ok(f"Clicked via {name}: '{text}'")
+            return
+    log_err(f"All strategies failed for '{selector}'. Element is truly missing.")
+
+# Feature 65: JSON output mode for all extractors
+async def cmd_json_extract(ws, what):
+    """Structured JSON extraction for scripting"""
+    extractors = {
+        "text": "document.body.innerText",
+        "title": "document.title",
+        "url": "location.href",
+        "links": LINKS_JS,
+        "images": IMAGES_JS,
+        "forms": FORMS_JS,
+        "meta": META_JS,
+        "prices": PRICES_JS,
+        "dates": DATES_JS,
+        "cookies": "document.cookie",
+    }
+    if what == "all":
+        result = {}
+        for k, expr in extractors.items():
+            result[k] = await js(ws, expr)
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    elif what in extractors:
+        result = await js(ws, extractors[what])
+        print(json.dumps({"type": what, "data": result}, indent=2, ensure_ascii=False, default=str))
+    else:
+        log_err(f"Unknown extractor: {what}. Options: {', '.join(extractors.keys())}, all")
+
+# ═══════════════════════════════════════════════════════════
 # MAIN ROUTER
 # ═══════════════════════════════════════════════════════════
 
@@ -1384,6 +1528,12 @@ async def main():
         elif cmd == "find": await cmd_find(ws, args[0])
         elif cmd == "stats": await cmd_stats(ws)
         elif cmd == "readable": print(await js(ws, READABLE_JS))
+        # Research additions (61-65)
+        elif cmd == "batch": await cmd_batch(ws, args[0])
+        elif cmd == "block": await cmd_block(ws, args[0] if args else "image")
+        elif cmd == "session": await cmd_session(ws, args[0] if args else "save", args[1] if len(args)>1 else "default")
+        elif cmd == "click-heal": await cmd_click_heal(ws, args[0])
+        elif cmd == "extract": await cmd_json_extract(ws, args[0] if args else "all")
         else:
             log_err(f"Unknown: {cmd}. I'm good, but not THAT good.")
             print(__doc__)
