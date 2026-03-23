@@ -737,12 +737,23 @@ async def cmd_click_coords(ws, x, y):
 
 async def cmd_fill(ws, selector, value):
     log_dim(q("type")); await hl(ws, selector, "FILL", "#00cc88"); await asyncio.sleep(0.2)
-    esc = selector.replace("'", "\\'")
-    await js(ws, f"document.querySelector('{esc}').focus()")
-    await cdp(ws, "Input.dispatchKeyEvent", {"type": "keyDown", "key": "a", "modifiers": 2})
-    await cdp(ws, "Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "modifiers": 2})
-    for ch in value: await cdp(ws, "Input.dispatchKeyEvent", {"type": "char", "text": ch})
-    log_ok(f"Filled with '{value}'. The form is pleased.")
+    esc_sel = selector.replace("'", "\\'")
+    esc_val = value.replace("'", "\\'").replace("\\", "\\\\")
+    # Use execCommand for React/Vue/Angular compatibility
+    result = await js(ws, f"""(() => {{
+      const el = document.querySelector('{esc_sel}');
+      if (!el) return 'not found';
+      el.focus();
+      if (el.select) el.select();
+      document.execCommand('selectAll');
+      document.execCommand('delete');
+      document.execCommand('insertText', false, '{esc_val}');
+      el.dispatchEvent(new Event('input', {{bubbles: true}}));
+      el.dispatchEvent(new Event('change', {{bubbles: true}}));
+      return 'ok';
+    }})()""")
+    if result == 'not found': log_err(f"Element not found: {selector}")
+    else: log_ok(f"Filled with '{value}'. The form is pleased.")
 
 async def cmd_type_human(ws, selector, text):
     """Typewriter mode — human-like typing (#36)"""
