@@ -168,7 +168,15 @@ async def get_ws(idx=None):
     pages = _get_pages()
     if not pages:
         log_err("No pages open in Chrome"); sys.exit(1)
-    i = idx if idx is not None else int(os.environ.get("TAB", "0"))
+    tab_env = os.environ.get("TAB", "0")
+    # Support TAB=url:pattern to find tab by URL match
+    if tab_env.startswith("url:"):
+        pattern = tab_env[4:]
+        for i, p in enumerate(pages):
+            if pattern in p.get("url", ""):
+                return await websockets.connect(pages[i]["webSocketDebuggerUrl"], max_size=100*1024*1024), pages
+        log_err(f"No tab matching URL '{pattern}'"); sys.exit(1)
+    i = idx if idx is not None else int(tab_env)
     if i >= len(pages):
         log_err(f"Tab {i} out of range (0-{len(pages)-1})"); sys.exit(1)
     return await websockets.connect(pages[i]["webSocketDebuggerUrl"], max_size=100*1024*1024), pages
@@ -242,20 +250,37 @@ def _click_js(sel):
 def _click_text_js(text):
     esc = text.replace("'", "\\'").replace('"', '\\"')
     return f"""(() => {{
-  const Q='a,button,[role="button"],[role="menuitem"],[role="tab"],[role="link"],[role="option"],div[tabindex],span[tabindex]';
+  const Q='a,button,[role="button"],[role="menuitem"],[role="tab"],[role="link"],[role="option"],div[tabindex],span[tabindex],div[class*="cursor"],div[onclick],label';
+  // Find ALL matching elements, then pick the SMALLEST (innermost) one
+  const candidates=[];
   for(const el of document.querySelectorAll(Q)){{
-    if(el.innerText.trim().includes('{esc}')){{
-      el.scrollIntoView({{block:'center'}});
-      el.dispatchEvent(new PointerEvent('pointerdown',{{bubbles:true,pointerId:1}}));
-      el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true}}));
-      el.dispatchEvent(new PointerEvent('pointerup',{{bubbles:true,pointerId:1}}));
-      el.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true}}));
-      el.dispatchEvent(new MouseEvent('click',{{bubbles:true}}));
+    if(el.innerText.trim().includes('{esc}') && el.offsetParent){{
       const r=el.getBoundingClientRect();
-      return {{x:r.x+r.width/2,y:r.y+r.height/2,found:el.innerText.trim().substring(0,50)}};
+      if(r.width>0 && r.height>0) candidates.push({{el,area:r.width*r.height}});
     }}
   }}
-  return null;
+  // Also search ALL elements for exact text match (catches portal/modal elements)
+  if(candidates.length===0){{
+    for(const el of document.querySelectorAll('*')){{
+      const direct=[...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('');
+      if(direct==='{esc}' && el.offsetParent){{
+        const r=el.getBoundingClientRect();
+        if(r.width>0) candidates.push({{el,area:r.width*r.height}});
+      }}
+    }}
+  }}
+  if(candidates.length===0) return null;
+  // Pick smallest element (most specific match)
+  candidates.sort((a,b)=>a.area-b.area);
+  const el=candidates[0].el;
+  el.scrollIntoView({{block:'center'}});
+  el.dispatchEvent(new PointerEvent('pointerdown',{{bubbles:true,pointerId:1}}));
+  el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true}}));
+  el.dispatchEvent(new PointerEvent('pointerup',{{bubbles:true,pointerId:1}}));
+  el.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true}}));
+  el.dispatchEvent(new MouseEvent('click',{{bubbles:true}}));
+  const r=el.getBoundingClientRect();
+  return {{x:r.x+r.width/2,y:r.y+r.height/2,found:el.innerText.trim().substring(0,50)}};
 }})()"""
 
 # ═══════════════════════════════════════════════════════════
@@ -688,6 +713,27 @@ async def cmd_right_click(ws, selector):
     }})()""")
     if v: log_ok(f"Right-clicked at ({v['x']:.0f},{v['y']:.0f}). Context menu should be open.")
     else: log_err("Element not found for right-click")
+
+async def cmd_click_coords(ws, x, y):
+    """Click at exact viewport coordinates (#4 fix)"""
+    log_dim(q("click"))
+    x, y = float(x), float(y)
+    # Highlight the point
+    await js(ws, f"""(() => {{
+      {HIGHLIGHT_STYLE}
+      const d=document.createElement('div');d.className='bp-hl';
+      d.style.cssText='position:fixed;left:{x-8}px;top:{y-8}px;width:16px;height:16px;border:3px solid #ff6600;border-radius:50%;pointer-events:none;z-index:999999;animation:bp-pulse 1s ease-in-out infinite';
+      document.body.appendChild(d);setTimeout(()=>d.remove(),2000);
+    }})()""")
+    await asyncio.sleep(0.2)
+    for etype in ["mousePressed", "mouseReleased"]:
+        await cdp(ws, "Input.dispatchMouseEvent", {
+            "type": etype, "x": x, "y": y, "button": "left", "clickCount": 1
+        })
+    await asyncio.sleep(0.5)
+    # Also try JS click on element at point
+    el_text = await js(ws, f"document.elementFromPoint({x},{y})?.innerText?.trim()?.substring(0,40) || '?'")
+    log_ok(f"Clicked at ({x:.0f},{y:.0f}) on '{el_text}'")
 
 async def cmd_fill(ws, selector, value):
     log_dim(q("type")); await hl(ws, selector, "FILL", "#00cc88"); await asyncio.sleep(0.2)
@@ -1578,7 +1624,8 @@ async def main():
     if cmd == "pages":
         pages = _get_pages(); await cmd_pages(pages); return
 
-    tab = int(os.environ.get("TAB", "0"))
+    tab_env = os.environ.get("TAB", "0")
+    tab = None if tab_env.startswith("url:") else int(tab_env)
     if cmd == "select":
         tab = int(args[0]) if args else 0
         log_ok(f"Switched to tab [{tab}]."); return
@@ -1604,6 +1651,7 @@ async def main():
         elif cmd == "click-index": await cmd_click_index(ws, args[0])
         elif cmd == "click-retry": await cmd_click_retry(ws, args[0], args[1] if len(args)>1 else 3)
         elif cmd == "right-click": await cmd_right_click(ws, args[0])
+        elif cmd == "click-coords": await cmd_click_coords(ws, args[0], args[1])
         # Input
         elif cmd == "fill": await cmd_fill(ws, args[0], args[1])
         elif cmd == "type-human": await cmd_type_human(ws, args[0], args[1])
