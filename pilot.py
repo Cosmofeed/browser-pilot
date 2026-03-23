@@ -1540,5 +1540,9 @@ async def main():
     finally:
         await ws.close()
 
-if __name__ == "__main__":
+def main_sync():
+    """Entry point for pip install — `browser-pilot` command."""
     asyncio.run(main())
+
+if __name__ == "__main__":
+    main_sync()

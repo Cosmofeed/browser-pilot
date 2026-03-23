@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "browser-pilot"
+version = "4.2.0"
+description = "Your browser. Your rules. No external LLM. Zero cost. 65+ features."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+dependencies = ["websockets>=12.0"]
+keywords = ["browser", "automation", "cdp", "chrome", "devtools", "scraping", "ai", "pilot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/Cosmofeed/browser-pilot"
+Repository = "https://github.com/Cosmofeed/browser-pilot"
+Issues = "https://github.com/Cosmofeed/browser-pilot/issues"
+
+[project.scripts]
+browser-pilot = "pilot:main_sync"
+
+[tool.setuptools]
+py-modules = ["pilot"]
+
+[tool.setuptools.packages.find]
+include = ["extras*"]
