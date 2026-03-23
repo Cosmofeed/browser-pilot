@@ -779,6 +779,71 @@ async def cmd_select_option(ws, selector, value):
     if r: log_ok(f"Selected '{r.get('text',value)}'")
     else: log_err(f"Select element not found: {selector}")
 
+async def cmd_select_custom(ws, selector, value):
+    """Select option from custom dropdown (react-select, Radix, Headless UI)"""
+    log_dim("wrestling with custom dropdown...")
+    esc_sel = selector.replace("'", "\\'")
+    esc_val = value.replace("'", "\\'")
+    # Strategy: find container → click to open → type to filter → click option
+    r = await js(ws, f"""(async () => {{
+      // Step 1: Find and click the select control
+      let control = document.querySelector('{esc_sel}');
+      if (!control) {{
+        // Try finding by label text
+        const labels = document.querySelectorAll('label, div, span');
+        for (const l of labels) {{
+          if (l.innerText?.trim()?.includes('{esc_sel}') && l.offsetParent) {{
+            control = l.closest('div')?.querySelector('div[class*="control"], div[class*="select"], [class*="trigger"]');
+            if (control) break;
+          }}
+        }}
+      }}
+      if (!control) return {{ok: false, error: 'control not found'}};
+
+      // Click to open
+      control.dispatchEvent(new PointerEvent('pointerdown', {{bubbles:true, pointerId:1}}));
+      control.dispatchEvent(new MouseEvent('mousedown', {{bubbles:true}}));
+      control.dispatchEvent(new PointerEvent('pointerup', {{bubbles:true, pointerId:1}}));
+      control.dispatchEvent(new MouseEvent('mouseup', {{bubbles:true}}));
+      control.dispatchEvent(new MouseEvent('click', {{bubbles:true}}));
+
+      // Step 2: Find and focus the input
+      await new Promise(r => setTimeout(r, 300));
+      const input = control.querySelector('input') || document.querySelector('input[id*="react-select"], input[class*="select-input"]');
+      if (input) {{
+        input.focus();
+        // Type to filter
+        for (const ch of '{esc_val}') {{
+          input.dispatchEvent(new KeyboardEvent('keydown', {{key: ch, bubbles: true}}));
+          document.execCommand('insertText', false, ch);
+          input.dispatchEvent(new Event('input', {{bubbles: true}}));
+        }}
+      }}
+
+      // Step 3: Wait for menu and click option
+      await new Promise(r => setTimeout(r, 500));
+      const options = document.querySelectorAll('div[class*="option"], [id*="option"], [role="option"], [class*="menu"] div');
+      for (const o of options) {{
+        if (o.innerText?.trim()?.toLowerCase().includes('{esc_val}'.toLowerCase()) && o.offsetParent) {{
+          o.dispatchEvent(new MouseEvent('click', {{bubbles: true}}));
+          return {{ok: true, selected: o.innerText.trim()}};
+        }}
+      }}
+
+      // Fallback: try keyboard selection
+      if (input) {{
+        input.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}));
+        await new Promise(r => setTimeout(r, 300));
+        return {{ok: true, selected: '{esc_val} (via Enter)'}};
+      }}
+
+      return {{ok: false, error: 'option not found', available: [...options].map(o => o.innerText?.trim()).filter(t => t?.length > 0 && t?.length < 50).slice(0, 10)}};
+    }})()""")
+    if r and r.get("ok"):
+        log_ok(f"Selected '{r.get('selected', value)}' from custom dropdown")
+    else:
+        log_err(f"Custom select failed: {r}")
+
 async def cmd_upload(ws, selector, filepath):
     """File upload (#34)"""
     esc = selector.replace("'", "\\'")
@@ -1499,6 +1564,7 @@ async def run_command(ws, cmd, args):
         elif cmd == "fill": await cmd_fill(ws, args[0], args[1])
         elif cmd == "type-human": await cmd_type_human(ws, args[0], args[1])
         elif cmd == "select-option": await cmd_select_option(ws, args[0], args[1])
+        elif cmd == "select-custom": await cmd_select_custom(ws, args[0], args[1])
         elif cmd == "upload": await cmd_upload(ws, args[0], args[1])
         elif cmd == "key": await cmd_key(ws, args[0])
         elif cmd == "scroll": await cmd_scroll(ws, args[0] if args else "down", args[1] if len(args)>1 else 800)
@@ -1667,6 +1733,7 @@ async def main():
         elif cmd == "fill": await cmd_fill(ws, args[0], args[1])
         elif cmd == "type-human": await cmd_type_human(ws, args[0], args[1])
         elif cmd == "select-option": await cmd_select_option(ws, args[0], args[1])
+        elif cmd == "select-custom": await cmd_select_custom(ws, args[0], args[1])
         elif cmd == "upload": await cmd_upload(ws, args[0], args[1])
         elif cmd == "key": await cmd_key(ws, args[0])
         # Scroll
