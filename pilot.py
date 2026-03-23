@@ -1416,6 +1416,145 @@ async def cmd_json_extract(ws, what):
         log_err(f"Unknown extractor: {what}. Options: {', '.join(extractors.keys())}, all")
 
 # ═══════════════════════════════════════════════════════════
+# SHELL MODE — persistent WebSocket, multi-command
+# ═══════════════════════════════════════════════════════════
+
+async def run_command(ws, cmd, args):
+    """Execute a single command on an open WebSocket. Returns True to continue, False to exit."""
+    try:
+        if cmd in ("quit", "exit", "q"): return False
+        elif cmd == "navigate": await cmd_navigate(ws, args[0])
+        elif cmd == "spa-wait": await cmd_spa_wait(ws, args[0] if args else 10)
+        elif cmd == "wait-for": await cmd_wait_for(ws, args[0], args[1] if len(args)>1 else 10)
+        elif cmd == "wait":
+            log_dim(q("wait")); await asyncio.sleep(float(args[0]) if args else 2)
+            log_ok(f"Waited {args[0] if args else 2}s.")
+        elif cmd == "dom": await cmd_dom(ws)
+        elif cmd == "dom-diff": await cmd_dom_diff(ws)
+        elif cmd == "text": await cmd_text(ws)
+        elif cmd == "eval": await cmd_eval(ws, args[0] if args else "document.title")
+        elif cmd == "click": await cmd_click(ws, args[0])
+        elif cmd == "click-text": await cmd_click_text(ws, args[0])
+        elif cmd == "click-index": await cmd_click_index(ws, args[0])
+        elif cmd == "click-retry": await cmd_click_retry(ws, args[0], args[1] if len(args)>1 else 3)
+        elif cmd == "click-heal": await cmd_click_heal(ws, args[0])
+        elif cmd == "right-click": await cmd_right_click(ws, args[0])
+        elif cmd == "fill": await cmd_fill(ws, args[0], args[1])
+        elif cmd == "type-human": await cmd_type_human(ws, args[0], args[1])
+        elif cmd == "select-option": await cmd_select_option(ws, args[0], args[1])
+        elif cmd == "upload": await cmd_upload(ws, args[0], args[1])
+        elif cmd == "key": await cmd_key(ws, args[0])
+        elif cmd == "scroll": await cmd_scroll(ws, args[0] if args else "down", args[1] if len(args)>1 else 800)
+        elif cmd == "scroll-to": await cmd_scroll_to(ws, args[0])
+        elif cmd == "scroll-infinite": await cmd_scroll_infinite(ws, args[0] if args else 20)
+        elif cmd == "lazy-load": await cmd_lazy_load(ws)
+        elif cmd == "screenshot": await cmd_screenshot(ws, args[0] if args else None)
+        elif cmd == "screenshot-full": await cmd_screenshot(ws, args[0] if args else None, full=True)
+        elif cmd == "screenshot-el": await cmd_screenshot(ws, args[1] if len(args)>1 else None, selector=args[0])
+        elif cmd == "table": print(json.dumps(await js(ws, TABLE_JS), indent=2))
+        elif cmd == "links": print(json.dumps(await js(ws, LINKS_JS), indent=2))
+        elif cmd == "images": print(json.dumps(await js(ws, IMAGES_JS), indent=2))
+        elif cmd == "forms": print(json.dumps(await js(ws, FORMS_JS), indent=2))
+        elif cmd == "meta": print(json.dumps(await js(ws, META_JS), indent=2))
+        elif cmd == "prices": print(json.dumps(await js(ws, PRICES_JS), indent=2))
+        elif cmd == "dates": print(json.dumps(await js(ws, DATES_JS), indent=2))
+        elif cmd == "cookies": await cmd_cookies(ws, args[0] if args else "export", args[1] if len(args)>1 else None)
+        elif cmd == "network": await cmd_network(ws, args[0] if args else "dump")
+        elif cmd == "highlight": await hl(ws, args[0], args[1] if len(args)>1 else "PILOT")
+        elif cmd == "highlight-all": print(await js(ws, HIGHLIGHT_ALL_JS))
+        elif cmd == "diff": await cmd_visual_diff(ws, args[0], args[1], args[2] if len(args)>2 else None)
+        elif cmd == "annotate": await cmd_annotate(ws, args[0], args[1])
+        elif cmd == "detect-login": print(json.dumps(await js(ws, DETECT_LOGIN_JS), indent=2))
+        elif cmd == "dismiss-cookies": await cmd_dismiss_cookies(ws)
+        elif cmd == "detect-captcha": print(json.dumps(await js(ws, DETECT_CAPTCHA_JS), indent=2))
+        elif cmd == "detect-error": print(json.dumps(await js(ws, DETECT_ERROR_JS), indent=2))
+        elif cmd == "detect-lang": print(json.dumps(await js(ws, DETECT_LANG_JS), indent=2))
+        elif cmd == "hover": await cmd_hover(ws, args[0])
+        elif cmd == "drag": await cmd_drag(ws, args[0], args[1], args[2])
+        elif cmd == "geo": await cmd_geo(ws, args[0], args[1])
+        elif cmd == "emulate": await cmd_emulate(ws, args[0])
+        elif cmd == "monitor": await cmd_monitor(ws, args[0], args[1] if len(args)>1 else 60)
+        elif cmd == "record": await cmd_record(ws, args[0] if args else "start", args[1] if len(args)>1 else None)
+        elif cmd == "a11y":
+            tree = await cdp(ws, "Accessibility.getFullAXTree")
+            for n in tree.get("nodes", [])[:50]:
+                role = n.get("role", {}).get("value", "")
+                name = n.get("name", {}).get("value", "")
+                if role and name: print(f"  {C.CYAN}{role}{C.RESET}: {name}")
+        elif cmd == "landmarks": print(json.dumps(await js(ws, LANDMARKS_JS), indent=2))
+        elif cmd == "markdown": print(await js(ws, MARKDOWN_JS))
+        elif cmd == "storage": print(json.dumps(await js(ws, STORAGE_JS), indent=2))
+        elif cmd == "console": print(json.dumps(await js(ws, CONSOLE_JS), indent=2))
+        elif cmd == "pdf": await cmd_pdf(ws, args[0] if args else None)
+        elif cmd == "perf": print(json.dumps(await js(ws, PERF_JS), indent=2))
+        elif cmd == "health": await cmd_health(ws)
+        elif cmd == "network-idle": await cmd_network_idle(ws, args[0] if args else 10)
+        elif cmd == "find": await cmd_find(ws, args[0])
+        elif cmd == "stats": await cmd_stats(ws)
+        elif cmd == "readable": print(await js(ws, READABLE_JS))
+        elif cmd == "batch": await cmd_batch(ws, args[0])
+        elif cmd == "block": await cmd_block(ws, args[0] if args else "image")
+        elif cmd == "session": await cmd_session(ws, args[0] if args else "save", args[1] if len(args)>1 else "default")
+        elif cmd == "extract": await cmd_json_extract(ws, args[0] if args else "all")
+        elif cmd == "help": print(__doc__)
+        elif cmd == "": pass
+        else: log_err(f"Unknown: {cmd}")
+    except IndexError:
+        log_err(f"Missing argument for '{cmd}'")
+    except Exception as e:
+        log_err(f"{e}")
+    return True
+
+async def cmd_shell(tab=0):
+    """Interactive shell — one persistent WebSocket, many commands."""
+    print(BANNER)
+    print(f"  {C.GREEN}Shell mode — persistent connection. Type commands, press Enter.{C.RESET}")
+    print(f"  {C.GRAY}Type 'help' for commands, 'quit' to exit.{C.RESET}\n")
+
+    ws, pages = await get_ws(tab)
+    title = pages[tab].get("title", "")[:40] if tab < len(pages) else ""
+    print(f"  {C.CYAN}Connected to tab [{tab}]: {title}{C.RESET}\n")
+
+    try:
+        while True:
+            try:
+                line = input(f"  {C.ORANGE}pilot>{C.RESET} ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+            if not line:
+                continue
+
+            global _t0
+            _t0 = time.time()
+
+            # Parse command + args
+            # Special handling: eval takes everything after as one arg
+            parts = line.split(None, 1)
+            cmd = parts[0]
+            if cmd == "eval":
+                args = [parts[1]] if len(parts) > 1 else []
+            elif cmd == "fill" or cmd == "type-human" or cmd == "annotate":
+                # These take selector + value, split into 2
+                rest = parts[1] if len(parts) > 1 else ""
+                rest_parts = rest.split(None, 1)
+                args = rest_parts
+            else:
+                import shlex
+                try:
+                    args = shlex.split(parts[1]) if len(parts) > 1 else []
+                except ValueError:
+                    args = parts[1].split() if len(parts) > 1 else []
+
+            cont = await run_command(ws, cmd, args)
+            if not cont:
+                break
+    finally:
+        await ws.close()
+        print(f"\n  {C.GRAY}Connection closed. Until next time.{C.RESET}\n")
+
+# ═══════════════════════════════════════════════════════════
 # MAIN ROUTER
 # ═══════════════════════════════════════════════════════════
 
@@ -1425,9 +1564,15 @@ async def main():
     cmd = sys.argv[1]
     args = sys.argv[2:]
 
+    # Shell mode — persistent connection
+    if cmd == "shell":
+        tab = int(args[0]) if args else int(os.environ.get("TAB", "0"))
+        await cmd_shell(tab)
+        return
+
     quiet = os.environ.get("BP_QUIET") == "1"
     if not quiet and cmd not in ("eval", "text"):
-        print(f"\n  {C.ORANGE}{C.BOLD}Browser Pilot{C.RESET} {C.DIM}v4{C.RESET}  {C.GRAY}// {cmd}{C.RESET}\n")
+        print(f"\n  {C.ORANGE}{C.BOLD}Browser Pilot{C.RESET} {C.DIM}v5{C.RESET}  {C.GRAY}// {cmd}{C.RESET}\n")
 
     # Commands that don't need WS
     if cmd == "pages":
